@@ -1,0 +1,42 @@
+# Vulnerability research target: WordPress 6.9.4 (affected) + MySQL 8.0.
+# STOCK install — NO plugin. The exploit (exploit.py) is the anonymous REST
+# batch-route confusion + author__not_in SQLi -> RCE chain (GHSA-ff9f-jf42-662q
+# + GHSA-fpp7-x2x2-2mjf).
+name: wpsqli
+
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+      MYSQL_ROOT_PASSWORD: rootpw
+    volumes:
+      # MySQL's secure_file_priv dir (default /var/lib/mysql-files) is bind-mounted
+      # so an INTO OUTFILE write also lands inside the WP webroot and is served.
+      # This is the one environmental precondition mirrored for the RCE step:
+      # the WP DB user holds FILE privilege (common shared-host misconfig).
+      - ./rce:/var/lib/mysql-files
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  wordpress:
+    image: wordpress:6.9.4
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8888:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      # same shared dir, exposed under the webroot so the dropped PHP is served.
+      - ./rce:/var/www/html/rce
