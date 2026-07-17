@@ -1,16 +1,24 @@
-# WordPress 6.9.x anonymous RCE — REST batch-route confusion + `author__not_in` SQLi
+# WordPress 6.9.x — REST batch-route confusion + `author__not_in` SQLi (**FILE-priv RCE variant**)
 
-Unauthenticated, **no-plugin**, remote-code-execution PoC for WordPress stock core.
-GHSA-ff9f-jf42-662q (batch-route confusion) + GHSA-fpp7-x2x2-2mjf (`author__not_in`
-SQLi) → RCE. Discovered by Adam Kues (Assetnote / Searchlight Cyber). Fixed in
-**6.8.6 / 6.9.5 / 7.0.2**. Full RCE chain affects **6.9.0–6.9.4, 7.0.0–7.0.1**;
-the underlying SQLi sink also affects 6.8.0–6.8.5 (fixed 6.8.6).
+Unauthenticated, **no-plugin** PoC for WordPress stock core. This demonstrates the
+**`INTO OUTFILE` (FILE-privilege) RCE variant** of the chain: GHSA-ff9f-jf42-662q
+(batch-route confusion) + GHSA-fpp7-x2x2-2mjf (`author__not_in` SQLi). Discovered by
+Adam Kues (Assetnote / Searchlight Cyber). Fixed in **6.8.6 / 6.9.5 / 7.0.2**. Full
+chain affects **6.9.0–6.9.4, 7.0.0–7.0.1**; the SQLi sink alone also affects
+6.8.0–6.8.5 (fixed 6.8.6).
+
+> **Scope, stated plainly:** the **anonymous SQLi delivery** (no auth, no plugin,
+> stock core) is unconditional — that holds on every affected site. The **RCE step
+> shown here is the `INTO OUTFILE` variant**, which additionally requires the WP
+> MySQL user to hold **FILE privilege** and a web-served `secure_file_priv` dir
+> (see *Preconditions*). It is **not** a FILE-free / crack-free RCE. See *No-FILE
+> paths* for what is and isn't reachable without FILE.
 
 ```
-POST /?rest_route=/batch/v1   (anonymous)   →   SQLi   →   INTO OUTFILE   →   id as www-data
+POST /?rest_route=/batch/v1   (anonymous)   →   SQLi   →   INTO OUTFILE (needs FILE priv)   →   id as www-data
 ```
 
-## Result (stock WP 6.9.4, no plugin)
+## Result (stock WP 6.9.4 + FILE-priv DB user, no plugin)
 
 ```
 [rce] uid=33(www-data) gid=33(www-data) groups=33(www-data)
@@ -65,15 +73,41 @@ it over HTTP runs `id` as `www-data`.
 
 ## Preconditions / scope
 
-- **Anonymous, no plugin, stock WP core.** Confirmed.
-- The RCE step (`INTO OUTFILE`) needs the WP MySQL user to hold **FILE** privilege —
-  the one environmental precondition (extremely common shared-host / cPanel misconfig
-  where the DB user is `GRANT ALL`). `init.sql` grants it for the lab.
-- Needs the `secure_file_priv` dir reachable by httpd (the lab bind-mounts it to the
-  webroot). On hosts where `INTO OUTFILE` can't write webroot-served paths, the same
-  SQLi still enables blind data exfiltration (e.g. admin credential extraction).
-- Direct `/wp/v2/posts?author_exclude=<sqli>` is **sanitized (HTTP 400)** — the
-  confusion is required.
+**Unconditional (every affected site):**
+- **Anonymous, no plugin, stock WP core** SQL injection into `WP_Query::author__not_in`
+  via the REST batch-route confusion. Direct `/wp/v2/posts?author_exclude=<sqli>` is
+  **sanitized (HTTP 400)** — the confusion is required to bypass it.
+- This grants unauthenticated **read** of the WP database (blind/boolean exfil via the
+  `X-WP-Total` oracle, or UNION once ORDER BY is blanked).
+
+**Required for the RCE shown here (the `INTO OUTFILE` variant):**
+- The WP MySQL user must hold global **FILE privilege**. This is **not** the WP default:
+  cPanel/managed hosts grant `ALL ON wordpressdb.*` (per-database, **no** FILE). FILE
+  shows up mainly on self-managed VPS / DIY stacks that do `GRANT ALL ON *.*`, and in
+  dev. `init.sql` grants it for the lab.
+- A `secure_file_priv` dir that httpd can serve. MySQL 8 defaults it to
+  `/var/lib/mysql-files/` (usually **not** web-served); the lab bind-mounts that dir
+  into the webroot. On hosts where `secure_file_priv` is `NULL` or a non-served dir,
+  `INTO OUTFILE` can't drop a served webshell even with FILE.
+
+## No-FILE paths (what is and isn't reachable without FILE)
+
+Investigated and ruled out for stock WP:
+- **No auth bypass via the confusion.** The `$matches` misalignment *does* dispatch an
+  anonymous sub-request onto write handlers (`/wp/v2/posts` create, `/wp/v2/settings`,
+  `/wp/v2/plugins`, `/wp/v2/media`), but `respond_to_request()` still runs the
+  misaligned handler's `permission_callback`, which enforces caps → **401** in every
+  case. No core write route lacks (or permissively sets) `permission_callback`.
+- **No DB write via the SQLi.** The sink is `get_items` (a `SELECT`); `$wpdb` uses
+  single-statement `mysqli_query` (no stacked `; UPDATE`); without FILE, MySQL has no
+  file-write primitive. So the injection is read-only.
+- **No read→RCE.** Auth keys / DB password live in `wp-config.php` (a file, not the
+  DB); `user_pass` is a hash (needs cracking); `user_activation_key` is stored hashed.
+
+The only FILE-free escalation is the classic **blind-exfil → crack admin hash → login
+→ plugin install / file editor** chain, which itself needs (a) a crackable admin
+password and (b) `DISALLOW_FILE_MODS` unset — i.e. additional preconditions. It is not
+demonstrated here.
 
 ## Files
 
