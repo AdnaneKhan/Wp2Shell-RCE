@@ -15,8 +15,8 @@ services:
     volumes:
       # MySQL's secure_file_priv dir (default /var/lib/mysql-files) is bind-mounted
       # so an INTO OUTFILE write also lands inside the WP webroot and is served.
-      # This is the one environmental precondition mirrored for the RCE step:
-      # the WP DB user holds FILE privilege (common shared-host misconfig).
+      # The INTO OUTFILE RCE variant needs FILE privilege on the WP DB user (granted in
+      # init.sql) + a served OUTFILE dir — NOT the WP default; see README "Preconditions".
       - ./rce:/var/lib/mysql-files
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
