@@ -30,7 +30,7 @@ POST /?rest_route=/batch/v1  (anonymous)
 uid=33(www-data) gid=33(www-data) groups=33(www-data)
 ```
 
-## Why this is the interesting part (the chain nobody published)
+## Why this is the interesting part
 
 The two CVEs alone only give an **anonymous, read-only** SQL injection. The hard
 part — and the part the public write-ups withhold — is turning a read-only SQLi
