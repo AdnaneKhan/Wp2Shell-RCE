@@ -1,7 +1,6 @@
--- Grants the WP DB user the global FILE privilege (a PRECONDITION for the INTO OUTFILE
--- RCE variant demonstrated here — NOT the WP default).
--- Note: cPanel/managed hosts grant `ALL ON wordpressdb.*` (per-database), which does
--- NOT include FILE. FILE shows up on self-managed VPS / DIY LAMP-LEMP stacks that run
--- `GRANT ALL ON *.*`, and in dev boxes. This lab grants it to reproduce that variant.
-GRANT FILE ON *.* TO 'wordpress'@'%';
-FLUSH PRIVILEGES;
+-- STOCK WordPress lab — intentionally NO special grants.
+-- The wp2shell chain (exploit.py) needs NO MySQL FILE privilege, NO cracked
+-- password, NO victim interaction. The WP DB user keeps the docker-entrypoint
+-- default (ALL on the `wordpress` database only, which does NOT include the
+-- global FILE privilege) — the chain does not use it.
+SELECT 1;

@@ -1,7 +1,13 @@
-# Vulnerability research target: WordPress 6.9.4 (affected) + MySQL 8.0.
-# STOCK install — NO plugin. The exploit (exploit.py) is the anonymous REST
-# batch-route confusion + author__not_in SQLi -> RCE chain (GHSA-ff9f-jf42-662q
-# + GHSA-fpp7-x2x2-2mjf).
+# Vulnerability research target: STOCK WordPress 7.0.0 (affected) + MySQL 8.0.
+# NO plugin, NO special DB grants — a default install.
+#
+# The exploit (exploit.py) is the anonymous wp2shell pre-auth RCE chain:
+# REST batch-route confusion (GHSA-ff9f-jf42-662q / CVE-2026-63030)
+#   + author__not_in SQLi (GHSA-fpp7-x2x2-2mjf / CVE-2026-60137)
+#   -> forged WP_Post object-cache poison -> oEmbed cache updater ->
+#   customize_changeset publish (user_id identity switch) -> parse_request
+#   re-entry -> new administrator -> plugin upload -> RCE.
+# Needs NO MySQL FILE privilege, NO cracked password, NO victim interaction.
 name: wpsqli
 
 services:
@@ -13,11 +19,7 @@ services:
       MYSQL_PASSWORD: wordpress
       MYSQL_ROOT_PASSWORD: rootpw
     volumes:
-      # MySQL's secure_file_priv dir (default /var/lib/mysql-files) is bind-mounted
-      # so an INTO OUTFILE write also lands inside the WP webroot and is served.
-      # The INTO OUTFILE RCE variant needs FILE privilege on the WP DB user (granted in
-      # init.sql) + a served OUTFILE dir — NOT the WP default; see README "Preconditions".
-      - ./rce:/var/lib/mysql-files
+      # default init only (no FILE grant) — see init.sql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
@@ -26,7 +28,7 @@ services:
       retries: 40
 
   wordpress:
-    image: wordpress:6.9.4
+    image: wordpress:7.0.0
     depends_on:
       db:
         condition: service_healthy
@@ -37,6 +39,6 @@ services:
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: wordpress
       WORDPRESS_DB_NAME: wordpress
-    volumes:
-      # same shared dir, exposed under the webroot so the dropped PHP is served.
-      - ./rce:/var/www/html/rce
+      # keep the lab pinned to the vulnerable release: never auto-update core
+      WORDPRESS_CONFIG_EXTRA: |
+        define('AUTOMATIC_UPDATER_DISABLED', true);
